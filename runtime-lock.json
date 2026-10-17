@@ -1,0 +1,96 @@
+{
+  "schema": 1,
+  "platform": "win-x64",
+  "node": {
+    "version": "v22.23.3",
+    "file": "node-v22.23.3-win-x64.zip",
+    "url": "https://nodejs.org/dist/v22.23.3/node-v22.23.3-win-x64.zip",
+    "sha256": "2b0ff57b049cda1bbcea2240eec20467018713c1efe1f7360c2681859b90ed71"
+  },
+  "python": {
+    "version": "3.10.11",
+    "file": "python-3.10.11-embed-amd64.zip",
+    "url": "https://www.python.org/ftp/python/3.10.11/python-3.10.11-embed-amd64.zip",
+    "sha256": "608619f8619075629c9c69f361352a0da6ed7e62f83a0e19c63e0ea32eb7629d"
+  },
+  "napcat": {
+    "version": "4.18.38",
+    "file": "NapCat.Shell.v4.18.38.zip",
+    "url": "https://github.com/NapNeko/NapCatQQ/releases/download/v4.18.38/NapCat.Shell.zip",
+    "sha256": "735f2e633247df3ffd6e8ee8b84d7039c315b2655f5807e5f0029f93d2c30016"
+  },
+  "wheels": [
+    {
+      "name": "pywinauto",
+      "version": "0.6.9",
+      "file": "pywinauto-0.6.9-py2.py3-none-any.whl",
+      "url": "https://files.pythonhosted.org/packages/44/46/f2283648e0c237af451dc50ebc42121abfd198d12391fd9ad4df1c6b97d2/pywinauto-0.6.9-py2.py3-none-any.whl",
+      "sha256": "5924b3072864a1d730c5546bbeb17cf4063ba518b618dbc5e43c18276c7c9356",
+      "size": 363041
+    },
+    {
+      "name": "comtypes",
+      "version": "1.4.17",
+      "file": "comtypes-1.4.17-py3-none-any.whl",
+      "url": "https://files.pythonhosted.org/packages/89/9c/d0bc1fb69ad22a04bdc01dd9b5613a2ebc4d02ba1ec24b02127dc93791ba/comtypes-1.4.17-py3-none-any.whl",
+      "sha256": "4e0a221dde2c589b82977bed802efd71cd5eb67a380347b732e02735e597f586",
+      "size": 298743
+    },
+    {
+      "name": "six",
+      "version": "1.17.0",
+      "file": "six-1.17.0-py2.py3-none-any.whl",
+      "url": "https://files.pythonhosted.org/packages/b7/ce/149a00dd41f10bc29e5921b496af8b574d8413afcd5e30dfa0ed46c2cc5e/six-1.17.0-py2.py3-none-any.whl",
+      "sha256": "4721f391ed90541fddacab5acf947aa0d3dc7d27b2e1e8eda2be8970586c3274",
+      "size": 11050
+    },
+    {
+      "name": "pywin32",
+      "version": "312",
+      "file": "pywin32-312-cp310-cp310-win_amd64.whl",
+      "url": "https://files.pythonhosted.org/packages/33/b1/7afc96d041d982c27bc2df6f853d43f01fd273e3d39d04be3647ddeb533d/pywin32-312-cp310-cp310-win_amd64.whl",
+      "sha256": "5dbc35d2b5320dc07f25fa31269cfb767471002b17de5eb067d03da68c7cb2db",
+      "size": 6926780
+    },
+    {
+      "name": "Pillow",
+      "version": "12.0.0",
+      "file": "pillow-12.0.0-cp310-cp310-win_amd64.whl",
+      "url": "https://files.pythonhosted.org/packages/92/c6/c2f2fc7e56301c21827e689bb8b0b465f1b52878b57471a070678c0c33cd/pillow-12.0.0-cp310-cp310-win_amd64.whl",
+      "sha256": "455247ac8a4cfb7b9bc45b7e432d10421aea9fc2e74d285ba4072688a74c2e9d",
+      "size": 7000412
+    },
+    {
+      "name": "pycryptodome",
+      "version": "3.23.0",
+      "file": "pycryptodome-3.23.0-cp37-abi3-win_amd64.whl",
+      "url": "https://files.pythonhosted.org/packages/54/2f/e97a1b8294db0daaa87012c24a7bb714147c7ade7656973fd6c736b484ff/pycryptodome-3.23.0-cp37-abi3-win_amd64.whl",
+      "sha256": "c75b52aacc6c0c260f204cbdd834f76edc9fb0d8e0da9fbf8352ef58202564e2",
+      "size": 1799636
+    },
+    {
+      "name": "frida",
+      "version": "17.8.0",
+      "file": "frida-17.8.0-cp37-abi3-win_amd64.whl",
+      "url": "https://files.pythonhosted.org/packages/3a/da/3f52498fe92aae6df29cc242e68c0b647cc85c35a236e62ef870ebfb1b7c/frida-17.8.0-cp37-abi3-win_amd64.whl",
+      "sha256": "717ee3c867f7b8c684106ae3021fb2bdb163c4c842ff11244428dd547ddcd678",
+      "size": 41897218
+    },
+    {
+      "name": "zstandard",
+      "version": "0.25.0",
+      "file": "zstandard-0.25.0-cp310-cp310-win_amd64.whl",
+      "url": "https://files.pythonhosted.org/packages/93/90/96d50ad417a8ace5f841b3228e93d1bb13e6ad356737f42e2dde30d8bd68/zstandard-0.25.0-cp310-cp310-win_amd64.whl",
+      "sha256": "ea9d54cc3d8064260114a0bbf3479fc4a98b21dffc89b3459edd506b69262f6e",
+      "size": 506100
+    },
+    {
+      "name": "typing_extensions",
+      "version": "4.15.0",
+      "file": "typing_extensions-4.15.0-py3-none-any.whl",
+      "url": "https://files.pythonhosted.org/packages/18/67/36e9267722cc04a6b9f15c7f3441c2363321a3ea07da7ae0c0707beb2a9c/typing_extensions-4.15.0-py3-none-any.whl",
+      "sha256": "f0fa19c6845758ab08074a0cfa8b7aecb71c999ca73d62883bc25cc018c4e548",
+      "size": 44614
+    }
+  ]
+}
