@@ -1,0 +1,46 @@
+# Personal data, login sessions and generated artifacts
+data/
+dev-data/
+collector-data/
+StudentInbox/
+accounts/
+browser-sessions/
+collector.config.json
+artifacts/
+dist/
+releases/
+logs/
+*.log
+*.token
+*.key
+*.pem
+*.dpapi
+*.db
+*.db-*
+*.sqlite
+*.sqlite3
+*.sqlite-*
+.env
+.env.*
+!.env.example
+
+# Installed runtimes and research checkouts
+node_modules/
+runtimes/
+runtime-manifest.json
+vendor/napcat/
+vendor/wechat-research/
+.venv*/
+venv/
+__pycache__/
+*.py[cod]
+
+# Local editor and OS files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Generated Windows desktop executables
+/Daymark.exe

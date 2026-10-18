@@ -1,0 +1,7 @@
+* text=auto eol=lf
+*.cmd text eol=crlf
+*.png binary
+*.jpg binary
+*.woff2 binary
+# Preserve the upstream license text, including its original whitespace.
+vendor/NapCat.LICENSE -whitespace
