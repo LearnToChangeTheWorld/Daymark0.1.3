@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtemp, mkdir, writeFile, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, readFile, realpath, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -17,7 +17,8 @@ function ps(code, env = process.env) {
   return execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', Buffer.from("$ProgressPreference='SilentlyContinue';" + code, 'utf16le').toString('base64')], { env, encoding: 'utf8', stdio: 'pipe', windowsHide: true, timeout: 15000 });
 }
 async function fixture(t) {
-  const root = await mkdtemp(join(tmpdir(), 'daymark-compat-'));
+  // Windows TEMP may use an 8.3 alias; discovery returns the canonical long path.
+  const root = await realpath(await mkdtemp(join(tmpdir(), 'daymark-compat-')));
   t.after(() => rm(root, { recursive: true, force: true }));
   const folder = join(root, '自定义安装 中文 space'); await mkdir(folder);
   const pe = Buffer.alloc(128); pe.writeUInt16LE(0x5a4d); pe.writeInt32LE(64, 60); pe.writeUInt32LE(0x4550, 64); pe.writeUInt16LE(0x8664, 68);
