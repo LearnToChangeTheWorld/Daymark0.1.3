@@ -20,11 +20,15 @@ export function cleanItem(input) {
   const title = text(input.title, 160);
   if (!title) invalid('请填写事项标题');
   if (input.due && !validDate(input.due)) invalid('截止日期不正确');
+  if (input.eventDate && !validDate(input.eventDate)) invalid('事项日期不正确');
+  for (const [field, date] of [['dueAt', input.due], ['eventAt', input.eventDate]]) {
+    if (input[field] && (!/^\d{4}-\d{2}-\d{2}T(?:[01]\d|2[0-3]):[0-5]\d:00\+08:00$/.test(input[field]) || !date || input[field].slice(0, 10) !== date)) invalid('事项时刻需要对应日期和北京时间');
+  }
   if (input.category && !['academic', 'life', 'unclassified'].includes(input.category)) invalid('分类不正确');
   if (input.source && !SOURCES.includes(input.source)) invalid('来源不正确');
   const category = input.category || 'unclassified';
   if (input.kind && !['task', 'notification'].includes(input.kind)) invalid('事项类型不正确');
-  return { title, body: text(input.body, 12000), kind: itemKind(input), category, source: input.source || 'manual', sourceName: text(input.sourceName, 100), due: input.due || null, confidence: category === 'unclassified' || input.confidence === 'low' ? 'low' : 'high' };
+  return { title, body: text(input.body, 12000), kind: itemKind(input), category, source: input.source || 'manual', sourceName: text(input.sourceName, 100), due: input.due || null, confidence: category === 'unclassified' || input.confidence === 'low' ? 'low' : 'high', ...Object.fromEntries(['dueAt', 'eventDate', 'eventAt'].filter(key => key in input).map(key => [key, input[key] || null])) };
 }
 
 export function validateEvent(input) {
