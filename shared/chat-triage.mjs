@@ -23,9 +23,12 @@ const reviewDestination = /学习通|雨课堂|教务系统|超星|第[一二三
 // explicit assignment. Other actionable text still needs review. Neither path
 // infers attachment contents or invents a deadline from the collection time.
 export function triageChat(item) {
-  if (!chatSources.has(item.source)) return null;
+  if (!chatSources.has(item.source) && !item.llm && !item.llmQueue) return null;
   if (item.kind === 'task') return { kind: 'task', reason: item.autoTask ? `根据关键词自动加入：${item.autoTask.reason}` : '已加入待办' };
   if (item.triageDecision === 'dismissed') return { kind: 'conversation', reason: '你已确认这条不是待办' };
+  if (item.llm) return { kind: item.llm.review ? 'candidate' : 'notice', confidence: 'low', reason: item.llm.reason || '大模型整理，请核对原文' };
+  if (item.llmQueue && item.llmQueue.status !== 'failed') return { kind: 'conversation', reason: item.llmQueue.status === 'done' ? '大模型已整理，原文保留' : '正在等待大模型整理' };
+  if (!chatSources.has(item.source)) return null;
   const original = String(item.body || item.title || '');
   const text = original.replace(/\[CQ:[^\]]*\]/gu, '').replace(/\[(?:图片|文件|附件|视频|语音|分享|转发|引用)(?:[：:][^\]]*)?\]/gu, '').replace(/@\d+/gu, '').trim();
   const clauses = text.split(/(?<=[。！？!?；;\n])|[，,]/u).map((part) => part.trim()).filter(Boolean);
@@ -72,6 +75,7 @@ export function presentItems(items) {
   const groups = new Map();
   for (const item of presented) {
     if (!chatSources.has(item.source)) continue;
+    if (item.llm || item.llmQueue && item.llmQueue.status !== 'failed') continue;
     // Include confirmed/dismissed originals so their repeated copies do not
     // return as new candidates after a user has made a decision.
     if (triageChat({ ...item, kind: 'notification', triageDecision: null })?.kind !== 'candidate') continue;
@@ -101,7 +105,8 @@ export function presentItems(items) {
 export function autoPromoteChatTasks(items, { now = new Date().toISOString() } = {}) {
   const promoted = [];
   for (const item of presentItems(items)) {
-    if (item.kind === 'task' || item.done || item.archived || item.triageDecision === 'dismissed' || item.relevance === 'other') continue;
+    if (item.kind === 'task' || item.done || item.archived || item.userEditedAt || item.triageDecision === 'dismissed' || item.relevance === 'other') continue;
+    if (item.llm || item.llmQueue && item.llmQueue.status !== 'failed') continue;
     if (item.triage?.kind !== 'candidate' || item.triage.confidence !== 'high' || item.triage.duplicateOf) continue;
     const stored = items.find((row) => row.id === item.id);
     stored.kind = 'task';

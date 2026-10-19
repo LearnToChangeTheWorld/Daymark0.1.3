@@ -8,12 +8,15 @@
   <meta name="apple-mobile-web-app-title" content="Daymark">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <title>Daymark · 个人事项工作台</title>
-  <link rel="manifest" href="/manifest.webmanifest">
-  <link rel="stylesheet" href="/vendor/tabler/tabler.min.css">
-  <link rel="stylesheet" href="/styles.css">
-  <link rel="stylesheet" href="/workspace.css">
-  <script src="/app.js" defer></script>
-  <script src="/chat.js" defer></script>
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="stylesheet" href="./vendor/tabler/tabler.min.css">
+  <link rel="stylesheet" href="./styles.css">
+  <link rel="stylesheet" href="./workspace.css">
+  <script src="./app.js" defer></script>
+  <script src="./chat.js" defer></script>
+  <script src="./llm.js" defer></script>
+  <script src="./csu.js" defer></script>
+  <link rel="stylesheet" href="./llm.css">
 </head>
 <body>
   <div class="app-frame">
@@ -32,7 +35,7 @@
         <button class="source-connect" type="button" data-connect-chat="qq"><i class="source-dot blue"></i>QQ <span>管理</span></button>
         <button class="source-connect" type="button" data-connect-chaoxing><i class="source-dot orange"></i>学习通 <span>连接 ›</span></button>
         <span data-source="rainclass"><i class="source-dot teal"></i>雨课堂</span>
-        <span data-source="csu"><i class="source-dot green"></i>中南教务</span>
+        <button class="source-connect" type="button" data-connect-csu><i class="source-dot green"></i>中南教务 <span>连接 ›</span></button>
       </div>
       <div class="sidebar-foot"><span class="server-pulse" id="serverPulse"></span><span id="serverLabel">正在连接事项服务</span><button id="settingsBtn" class="icon-button" title="设置" aria-label="设置"><svg viewBox="0 0 24 24"><path d="M4 7h4m4 0h8M4 17h8m4 0h4"/><circle cx="10" cy="7" r="2"/><circle cx="14" cy="17" r="2"/></svg></button></div>
     </aside>
@@ -85,6 +88,8 @@
       <label class="form-field">原文或备注<textarea name="body" rows="3" maxlength="12000" placeholder="保留通知原文或补充信息"></textarea></label>
       <input type="hidden" name="category" value="unclassified"><label class="form-field">来源<select name="source"><option value="manual">手动记录</option><option value="wechat">微信</option><option value="qq">QQ</option><option value="chaoxing">学习通</option><option value="rainclass">雨课堂</option><option value="csu">中南大学教务</option></select></label>
       <label class="form-field due-field">截止日期 <span>可留空，未知时间不会被误判</span><input name="due" type="date"></label>
+      <label class="form-field">截止时刻（北京时间，可留空）<input name="dueTime" type="time"></label>
+      <div class="llm-date-fields"><label class="form-field">事项发生日期<input name="eventDate" type="date"></label><label class="form-field">发生时刻（北京时间）<input name="eventTime" type="time"></label></div>
       <div class="dialog-actions"><button class="secondary-button" type="button" data-close>取消</button><button class="add-button" type="submit">保存事项</button></div>
     </form>
   </dialog>
@@ -94,10 +99,50 @@
       <p class="settings-intro" id="serviceDescription">事项与账号设置保存在这台电脑，无需服务器或域名。</p>
       <div class="settings-collector" id="collectorDetails"></div>
       <div class="settings-sources" id="settingsSources"></div>
+      <div class="settings-note llm-entry"><strong>大模型整理</strong><span id="llmSummary">未开启 · 可接入 DeepSeek 等兼容服务</span><button class="secondary-button" type="button" id="openLlm">配置大模型</button></div>
       <div class="settings-note"><strong>关闭网页后的提醒尚未开启</strong><span>网页内会持续显示逾期、今天到期、近 3 天到期及日期待确认的待办；关闭网页后还不会收到自动推送。</span></div>
       <div class="settings-note"><strong>在 iPhone 上使用</strong><span id="phoneAccessNote">当前版本仅供这台电脑使用，iPhone 暂不能远程访问。网站同步接口已保留，之后可扩展。</span></div>
       <button class="secondary-button full-button" type="button" data-close>完成</button>
       <button class="secondary-button full-button" type="button" id="logoutButton">退出此设备</button>
+    </div>
+  </dialog>
+  <dialog id="llmDialog">
+    <div class="settings-content">
+      <div class="dialog-head"><div><span class="eyebrow">消息 → 清晰的待办</span><h2>大模型整理</h2></div><button class="icon-button" type="button" data-close aria-label="关闭">×</button></div>
+      <p class="settings-intro">将文字消息拆成具体事项，分别标明截止和发生时间。含糊的日期、适用对象及事项变更会进入待确认，原文始终保留。</p>
+      <form id="llmForm">
+        <label class="form-field">服务商<select name="provider"><option value="deepseek">DeepSeek</option><option value="custom">其他 OpenAI 兼容服务 / 本机模型</option></select></label>
+        <label class="form-field">API Key<input name="apiKey" type="password" maxlength="512" autocomplete="off" placeholder="粘贴服务商提供的 API Key"></label>
+        <p class="settings-intro" id="llmKeyNote"></p>
+        <label class="form-field">模型名称<input name="model" maxlength="120" required placeholder="填写服务商支持的模型名称"></label>
+        <details id="llmAdvanced"><summary>服务地址与用量设置</summary><label class="form-field">API 地址<input name="baseUrl" type="url" required placeholder="https://api.deepseek.com/v1"></label><label class="remember-option"><input name="jsonMode" type="checkbox" checked> 使用 JSON 模式（服务不支持时可关闭）</label><label class="form-field">每日 tokens 上限<input name="dailyTokenLimit" type="number" min="10000" max="100000000" step="1000" required></label><div class="llm-date-fields"><label class="form-field">每批消息数<input name="batchSize" type="number" min="1" max="48" step="1" required></label><label class="form-field">单次输出 tokens 上限<input name="maxOutputTokens" type="number" min="1024" max="65536" step="1024" required></label></div><label class="remember-option"><input name="fastMode" type="checkbox" checked> DeepSeek 快速整理（关闭深度思考，优先速度）</label><p class="settings-intro">一次可整理多条消息并生成多个事项，正文自动提炼为简洁说明。输出上限须符合所选服务；超长批次会自动拆分。</p><p class="settings-intro">包含连接测试和历史整理。失败或服务未报告用量时按保守估计计入，额度在北京时间零点重置。</p></details>
+        <label class="remember-option"><input name="remember" type="checkbox"> 使用 Windows 账户加密保存 API Key</label>
+        <label class="remember-option"><input name="enabled" type="checkbox"> 自动整理启用后新拉取的文字消息</label>
+        <label class="remember-option llm-consent"><input name="consent" type="checkbox"> 我同意将待整理的文字、时间及同一会话的必要上下文发送给所选模型服务；调用可能产生服务商费用。图片和附件内容暂不识别。</label>
+        <div class="dialog-actions"><button class="secondary-button" type="button" id="llmTest">测试连接</button><button class="add-button" type="submit">保存设置</button></div>
+      </form>
+      <p id="llmFeedback" class="llm-feedback" role="status" aria-live="polite"></p>
+      <div class="llm-progress"><strong id="llmStatus">尚未配置</strong><p id="llmBatchSummary"></p><p id="llmUsage"></p><p id="llmError" role="alert"></p><div class="dialog-actions"><button class="secondary-button" type="button" id="llmPause">暂停整理</button><button class="secondary-button" type="button" id="llmRetry">重试失败消息</button><button class="secondary-button" type="button" id="llmClear">移除密钥</button></div></div>
+      <section class="llm-history"><h3>整理历史消息</h3><p class="settings-intro">仅整理未手动处理、原发布时间明确的文字消息，每次最多 100 条。先预览，再选择要保留的事项。</p><div class="dialog-actions"><label class="form-field">消息范围<select id="llmDays"><option value="1">近 1 天</option><option value="7" selected>近 7 天</option><option value="30">近 30 天</option></select></label><button class="secondary-button" id="llmPreview" type="button">生成预览</button></div><div id="llmPreviews"></div></section>
+    </div>
+  </dialog>
+  <dialog id="csuDialog">
+    <div class="settings-content">
+      <div class="dialog-head"><div><span class="eyebrow">信息来源 / 中南大学教务系统</span><h2>连接中南教务</h2></div><button class="icon-button" type="button" data-close aria-label="关闭">×</button></div>
+      <p class="settings-intro">登录学校教务系统，读取站内教务通知。启用大模型自动整理后，新通知会提炼正文、拆分事项并标明日期，原文保留在记录中。</p>
+      <ol class="chat-steps"><li>打开学校窗口</li><li>完成登录与验证</li><li>同步教务通知</li></ol>
+      <p class="settings-note">请在独立学校窗口输入账号、密码或扫码；Daymark 只读取教务登录状态。通知链接由学校提供，正文中的图片和附件暂不解析。</p>
+      <div class="account-outcome" role="status" aria-live="polite"><strong id="csuHeadline">尚未连接</strong><p id="csuStatus">正在读取连接状态…</p><p id="csuLastSync"></p></div>
+      <label class="form-field">通知读取范围<select id="csuDays"><option value="7">近 7 天通知</option><option value="30">近 30 天通知</option></select></label>
+      <p class="settings-intro">原发布时间不明确的通知会保留并标为时间未知；不会将采集时间当作发布日期。</p>
+      <label class="remember-option"><input id="csuRemember" type="checkbox" checked> 使用 Windows 账户加密保存教务登录状态，下次自动恢复</label>
+      <p class="settings-intro">连接后每 5 分钟检查一次。登录失效时重新验证；切换其他学生账号前，请先断开当前连接。</p>
+      <p id="csuError" class="pair-error" role="alert" hidden></p>
+      <div class="account-actions"><button class="add-button" type="button" id="csuConnect">打开学校登录窗口</button><button class="secondary-button" type="button" id="csuSync" hidden>我已登录，开始同步</button></div>
+      <div id="csuWarnings" class="account-outcome" hidden></div>
+      <p id="csuLlmNote" class="settings-intro"></p>
+      <button class="secondary-button" type="button" id="csuOpenLlm">配置大模型整理</button>
+      <details id="csuSettings" hidden><summary>连接管理</summary><p>断开会删除本机保存的教务登录状态，已采集消息和待办会保留。</p><button class="secondary-button" type="button" id="csuDisconnect">断开并删除登录状态</button></details>
     </div>
   </dialog>
   <dialog id="accountDialog">
@@ -166,6 +211,9 @@
         <button class="secondary-button full-button" type="button" id="chatDisconnect" hidden>断开本软件采集并取消自动连接</button>
       </div>
     </div>
+  </dialog>
+  <dialog id="fileEntryDialog" class="pair-dialog">
+    <div class="settings-content"><div class="pair-mark">D</div><span class="eyebrow">Daymark 启动入口</span><h2>先启动 Daymark，再打开事项库</h2><p>你现在打开的是程序里的网页文件。请返回上一层文件夹，双击 <strong>Start-Daymark.cmd</strong>，程序启动后会自动打开正常页面。</p><p>如果已经启动，可以直接进入下面的地址。</p><a class="add-button full-button" href="http://127.0.0.1:4317/">打开本机 Daymark</a></div>
   </dialog>
   <dialog id="pairDialog" class="pair-dialog">
     <form id="pairForm" method="dialog"><div class="pair-mark">D</div><span class="eyebrow">个人事项库</span><h2>输入你的访问码</h2><p>访问码显示在事项服务的启动窗口中。登录后，此设备可保持登录 30 天。</p><label class="form-field">访问码<input name="code" type="password" required autocomplete="current-password" maxlength="64" placeholder="输入访问码"></label><button class="add-button full-button" type="submit">进入事项库</button><p class="pair-error" id="pairError" hidden></p></form>

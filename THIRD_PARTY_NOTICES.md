@@ -24,6 +24,8 @@ Frida 二进制使用其附带的 wxWindows Library Licence 3.1 及二进制分�
 
 ## 设计与协议参考
 
+- [CSUMCP](https://github.com/chendaile/CSUMCP/tree/7db3ccc3715ed6460ecbd3d6338ce0fd3c666b7e)：MIT，2025 oftheloneliness；参考其 `server/auth.ts` 的中南教务 SSO 入口与会话认证方式，使用 Daymark 自有的原生浏览器登录、通知采集实现，未打包其项目或远程服务。核对与复用边界见 [教务接入说明](docs/csu.md)。
+
 - [shadcn/ui](https://github.com/shadcn-ui/ui)：参考 Tasks 和 Sidebar 的布局思路，未复制 React 组件；页面样式由 Daymark 自行实现。
 - [Xuexitong-mcp](https://github.com/DanMo661/Xuexitong-mcp)：学习通登录与只读接口研究参考，本项目使用独立 Node.js 客户端，未打包其 Python 项目。
 - [pywechat](https://github.com/Hello-Mr-Crab/pywechat)：早期 Windows 控件兼容性研究，未导入或分发该包。

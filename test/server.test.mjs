@@ -290,6 +290,7 @@ test('account management requires a browser session and a loopback host; cloud m
   try {
     server = await startServer(dataDir);
     assert.equal((await fetch(server.base + '/api/accounts/chaoxing')).status, 401);
+    assert.equal((await fetch(server.base + '/api/accounts/csu')).status, 401);
     const login = await fetch(server.base + '/api/pair', { method: 'POST', body: JSON.stringify({ code: server.accessCode }) });
     const cookie = login.headers.get('set-cookie').split(';')[0];
     const info = await fetch(server.base + '/api/accounts/chaoxing', { headers: { cookie } }).then((r) => r.json());
@@ -318,6 +319,7 @@ test('account management requires a browser session and a loopback host; cloud m
     const headers = { cookie, 'x-forwarded-proto': 'https', 'content-type': 'application/json' };
     for (const source of ['qq', 'wechat']) for (const action of ['qr', 'check', 'history', 'acknowledge']) assert.equal((await fetch(server.base + `/api/accounts/${source}/${action}`, { method: 'POST', headers, body: '{}' })).status, 403);
     assert.equal((await fetch(server.base + '/api/accounts/chaoxing', { method: 'POST', headers, body: '{}' })).status, 403);
+    assert.equal((await fetch(server.base + '/api/accounts/csu', { method: 'POST', headers, body: '{}' })).status, 403);
     assert.equal((await fetch(server.base + '/api/accounts/chaoxing/verification', { method: 'POST', headers, body: '{}' })).status, 403);
     const state = await fetch(server.base + '/api/state', { headers }).then((r) => r.json());
     assert.equal(state.localAccountsEnabled, false); assert.equal(state.mode, 'cloud');
@@ -332,5 +334,25 @@ test('account management requires a browser session and a loopback host; cloud m
     const synced = await fetch(server.base + '/api/state', { headers }).then(r => r.json());
     assert.equal(synced.items.find(item => item.externalId === event.externalId).title, event.title);
     assert.equal(synced.collector.online, true);
+  } finally { if (server) await stopServer(server.child); await rm(dataDir, { recursive: true, force: true }); }
+});
+
+
+test('CSU connection endpoints validate local requests without collecting any public website feed', async () => {
+  const dataDir = await mkdtemp(join(tmpdir(), 'daymark-csu-api-')); let server;
+  try {
+    server = await startServer(dataDir);
+    const pair = await fetch(server.base + '/api/pair', { method: 'POST', body: JSON.stringify({ code: server.accessCode }) });
+    const headers = { cookie: pair.headers.get('set-cookie').split(';')[0], 'content-type': 'application/json' };
+    const get = await fetch(server.base + '/api/accounts/csu', { headers }).then(r => r.json());
+    assert.equal(get.configured, false); assert.equal(get.status, 'not_configured');
+    assert.equal((await fetch(server.base + '/api/accounts/csu/sync', { method: 'POST', headers, body: '{}' })).status, 409);
+    assert.equal((await fetch(server.base + '/api/accounts/csu', { method: 'POST', headers, body: '{"days":999}' })).status, 400);
+    assert.equal((await fetch(server.base + '/api/accounts/csu', { method: 'POST', headers: { ...headers, 'content-type': 'text/plain' }, body: '{}' })).status, 415);
+    assert.equal((await fetch(server.base + '/api/accounts/csu', { method: 'POST', headers: { ...headers, origin: 'http://other.test' }, body: '{}' })).status, 403);
+    assert.equal((await fetch(server.base + '/api/accounts/csu', { method: 'DELETE', headers, body: '{}' })).status, 200);
+    const state = await fetch(server.base + '/api/state', { headers }).then(r => r.json());
+    assert.deepEqual(state.items, []); assert.equal(state.sources.csu, undefined);
+    assert.equal((await fetch(server.base + '/csu.js')).status, 200);
   } finally { if (server) await stopServer(server.child); await rm(dataDir, { recursive: true, force: true }); }
 });
