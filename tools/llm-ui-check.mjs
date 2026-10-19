@@ -1,0 +1,140 @@
+import assert from 'node:assert/strict';
+import { createServer } from 'node:http';
+import { spawn } from 'node:child_process';
+import { once } from 'node:events';
+import { mkdtemp, writeFile, readFile, mkdir, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { setTimeout as delay } from 'node:timers/promises';
+import { createRequire } from 'node:module';
+const require = createRequire(import.meta.url);
+const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
+const root = fileURLToPath(new URL('../', import.meta.url));
+const directory = await mkdtemp(join(tmpdir(), 'daymark-llm-ui-'));
+let modelCalls = 0, deny = false, child, browser;
+const mock = createServer(async (req, res) => {
+  let raw = ''; for await (const chunk of req) raw += chunk;
+  const input = JSON.parse(raw); modelCalls++;
+  res.setHeader('content-type', 'application/json');
+  if (deny) { res.writeHead(401); return res.end('{"error":"provider-secret-must-not-escape"}'); }
+  const test = input.messages[0].content.includes('{"ok":true}');
+  let content = '{"ok":true}';
+  if (!test) {
+    const data = JSON.parse(input.messages[1].content);
+    const message = data.messages.find(m => !data.focusIds || data.focusIds.includes(m.id));
+    const common = { kind: 'task', body: '提交到学习通，保留报告原件。', audience: 'all', certainty: 'high', sourceIds: [message.id], evidence: [{ sourceId: message.id, quote: message.body }], due: { sourceId: message.id, text: '明天下午5点前' }, event: null, targetId: null, reason: '全体同学的具体行动要求' };
+    content = JSON.stringify({ results: [{ ...common, title: '提交实验报告' }, { ...common, title: '填写统计表', body: '填写统计表，核对姓名与学号。', audience: 'uncertain', reason: '适用对象需要核对' }] });
+  }
+  res.end(JSON.stringify({ choices: [{ finish_reason: 'stop', message: { content } }], usage: { total_tokens: 350 } }));
+});
+mock.listen(0, '127.0.0.1'); await once(mock, 'listening');
+const now = new Date().toISOString();
+const message = { source: 'qq', sourceName: '物理课程群', externalId: 'synthetic:class:1', kind: 'notification', category: 'academic', title: '实验报告通知', body: '各位同学好，请大家明天下午5点前提交实验报告到学习通，保留报告原件，并填写统计表，核对姓名与学号。谢谢大家配合。', createdAt: now, publishedAt: now };
+async function start() {
+  child = spawn(process.execPath, [join(root, 'server.mjs')], { cwd: root, env: { ...process.env, HOST: '127.0.0.1', PORT: '0', STUDENT_INBOX_MODE: 'local', STUDENT_INBOX_DATA_DIR: directory }, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
+  let output = ''; child.stdout.on('data', b => { output += b; }); child.stderr.on('data', b => { output += b; });
+  for (let count = 0; count < 300 && !output.includes('Access code:'); count++) { if (child.exitCode !== null) throw new Error('Synthetic server stopped'); await delay(50); }
+  const port = output.match(/127\.0\.0\.1:(\d+)/)?.[1]; assert.ok(port, 'server starts'); return `http://127.0.0.1:${port}`;
+}
+async function stop() { if (child?.exitCode === null) { child.kill(); await Promise.race([once(child, 'exit'), delay(5000)]); if (child.exitCode === null) child.kill('SIGKILL'); } }
+try {
+  await writeFile(join(directory, 'inbox.json'), JSON.stringify({ items: [{ ...message, id: 'abc' }] }));
+  let base = await start();
+  browser = await chromium.launch({ channel: 'msedge', headless: true });
+  const context = await browser.newContext({ viewport: { width: 1440, height: 1000 }, timezoneId: 'Asia/Shanghai' });
+  const page = await context.newPage(), errors = [];
+  page.on('pageerror', e => errors.push(e.message));
+  await mkdir(join(root, 'artifacts'), { recursive: true });
+  const fileRequests = [];
+  page.on('request', request => { if (request.url().startsWith('file:') && request.url().includes('/api/')) fileRequests.push(request.url()); });
+  await page.goto(pathToFileURL(join(root, 'public', 'index.html')).href);
+  await page.locator('#fileEntryDialog[open]').waitFor();
+  assert.equal(await page.locator('.app-frame').evaluate(el => getComputedStyle(el).display), 'grid', 'direct file entry loads layout styles');
+  assert.equal(await page.locator('#fileEntryDialog a').getAttribute('href'), 'http://127.0.0.1:4317/');
+  assert.deepEqual(fileRequests, [], 'file entry does not try to call a nonexistent file API');
+  assert.equal(await page.locator('#pairDialog').evaluate(el => el.open), false, 'file entry explains startup instead of showing a dead login');
+  await page.screenshot({ path: join(root, 'artifacts', 'file-entry-fixed.png'), fullPage: true });
+  assert.equal((await context.request.get(base + '/api/llm')).status(), 401);
+  await context.request.post(base + '/api/pair', { data: { code: (await readFile(join(directory, 'access.token'), 'utf8')).trim() } });
+  const headers = { authorization: 'Bearer ' + (await readFile(join(directory, 'collector.key'), 'utf8')).trim() };
+  await page.goto(base);
+  assert.equal(await page.locator('#fileEntryDialog').evaluate(el => el.open), false, 'HTTP entry retains normal application flow');
+  await page.locator('#settingsBtn').click(); await page.locator('#openLlm').click();
+  assert.equal(await page.locator('#llmForm [name=dailyTokenLimit]').inputValue(), '10000000');
+  assert.equal(await page.locator('#llmForm [name=batchSize]').inputValue(), '24');
+  assert.equal(await page.locator('#llmForm [name=maxOutputTokens]').inputValue(), '16384');
+  assert.equal(await page.locator('#llmForm [name=fastMode]').isChecked(), true);
+  await page.locator('#llmForm [name=provider]').selectOption('custom');
+  await page.locator('#llmForm [name=baseUrl]').fill(`http://127.0.0.1:${mock.address().port}/v1`);
+  await page.locator('#llmForm [name=model]').fill('synthetic-model');
+  await page.locator('#llmForm [name=apiKey]').fill('synthetic-key-only');
+  deny = true; await page.locator('#llmTest').click(); await page.locator('#llmFeedback').filter({ hasText: 'API Key' }).waitFor();
+  assert.equal(await page.locator('#pairDialog').evaluate(d => d.open), false, 'upstream 401 does not log out local session');
+  deny = false; await page.locator('#llmTest').click(); await page.locator('#llmFeedback').filter({ hasText: '连接成功' }).waitFor();
+  await page.locator('#llmForm [name=enabled]').check(); await page.locator('#llmForm [name=consent]').check();
+  if (process.platform === 'win32') await page.locator('#llmForm [name=remember]').check();
+  await page.locator('#llmForm [type=submit]').click(); await page.locator('#llmFeedback').filter({ hasText: '设置已保存' }).waitFor({ timeout: 30000 });
+  assert.equal(await page.locator('#llmForm [name=apiKey]').inputValue(), '');
+  const saved = await readFile(join(directory, 'inbox.json'), 'utf8');
+  assert.equal(saved.includes('synthetic-key-only'), false, 'key is not plaintext on disk');
+  let state = await context.request.get(base + '/api/state').then(r => r.json());
+  assert.equal(state.items.some(i => i.llm), false, 'old messages are not sent automatically');
+  assert.equal(state.llm.config.batchSize, 24); assert.equal(state.llm.config.maxOutputTokens, 16384);
+  assert.equal(state.llm.config.dailyTokenLimit, 10000000);
+  assert.equal(JSON.stringify(state).includes('secretCipher'), false);
+  await page.locator('#llmPreview').click();
+  await page.locator('.llm-preview-row').first().waitFor({ timeout: 15000 });
+  assert.equal(await page.locator('.llm-preview-row').count(), 2);
+  await page.locator('.llm-preview-row input').nth(1).uncheck();
+  await page.locator('[data-apply-preview]').click(); await page.locator('#llmFeedback').filter({ hasText: '已保留 1 项' }).waitFor();
+  await mkdir(join(root, 'artifacts'), { recursive: true });
+  await page.locator('#llmAdvanced').evaluate(el => { el.open = false; });
+  await page.locator('#llmDialog').evaluate(el => { el.scrollTop = 0; });
+  await page.screenshot({ path: join(root, 'artifacts', 'llm-settings-desktop.png'), fullPage: true });
+  await page.locator('#llmDialog [data-close]').click(); await page.locator('#settingsDialog [data-close]').first().click();
+  await page.locator('#itemList .item-title').filter({ hasText: '提交实验报告' }).waitFor();
+  assert.match(await page.locator('#itemList').textContent(), /17:00/);
+  const organizedState = await context.request.get(base + '/api/state').then(r => r.json());
+  assert.equal(organizedState.items.find(i => i.llm).body, '提交到学习通，保留报告原件。');
+  assert.equal(organizedState.items.find(i => i.id === 'abc').body, message.body, 'original message remains available');
+  await page.locator('#itemList [data-action=details]').first().click();
+  assert.match(await page.locator('#detailContent').textContent(), /大模型整理/);
+  assert.match(await page.locator('.llm-evidence').textContent(), /明天下午5点前/);
+  await page.locator('#detailDialog [data-close]').click();
+  // New messages use real collector → persisted queue → local HTTP model → task/review flows.
+  const response = await context.request.post(base + '/api/collector/events', { headers, data: { events: [{ ...message, externalId: 'synthetic:class:2', body: '请大家明天下午5点前提交实验报告，并填写统计表。新增通知' }] } });
+  assert.equal(response.status(), 200);
+  for (let count = 0; count < 150; count++) {
+    state = await context.request.get(base + '/api/state').then(r => r.json());
+    if (state.llm.counts.done >= 2) break; await delay(100);
+  }
+  assert.equal(state.llm.counts.done, 2);
+  assert.ok(state.items.some(i => i.llm?.review), 'uncertain result goes to review');
+  await page.reload(); await page.locator('.main-nav [data-view=review]').click();
+  await page.locator('#itemList [data-action=make-task]').first().click();
+  await page.locator('.main-nav [data-view=tasks]').click();
+  const confirmed = await context.request.get(base + '/api/state').then(r => r.json());
+  assert.ok(confirmed.items.some(i => i.title === '填写统计表' && i.kind === 'task' && i.userEditedAt));
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.locator('#mobileSettingsBtn').click(); await page.locator('#openLlm').click();
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+  assert.equal(await page.locator('#llmDialog').evaluate(el => el.scrollWidth > el.clientWidth + 1), false);
+  await page.screenshot({ path: join(root, 'artifacts', 'llm-settings-mobile.png'), fullPage: true });
+  await page.locator('#llmAdvanced').evaluate(el => { el.open = true; });
+  await page.locator('#llmForm [name=batchSize]').scrollIntoViewIfNeeded();
+  assert.equal(await page.locator('#llmDialog').evaluate(el => el.scrollWidth > el.clientWidth + 1), false, 'advanced batch/output controls fit on mobile');
+  await page.screenshot({ path: join(root, 'artifacts', 'llm-settings-mobile-advanced.png'), fullPage: true });
+  await page.locator('#llmPause').click(); await page.locator('#llmFeedback').filter({ hasText: '整理已暂停' }).waitFor();
+  const callsBefore = modelCalls;
+  await context.request.post(base + '/api/collector/events', { headers, data: { events: [{ ...message, externalId: 'synthetic:class:3' }] } });
+  await delay(2000); assert.equal(modelCalls, callsBefore);
+  await stop(); base = await start();
+  const cookieContext = await browser.newContext();
+  await cookieContext.request.post(base + '/api/pair', { data: { code: (await readFile(join(directory, 'access.token'), 'utf8')).trim() } });
+  const restarted = await cookieContext.request.get(base + '/api/llm').then(r => r.json());
+  assert.equal(restarted.enabled, false);
+  assert.equal(restarted.hasKey, process.platform === 'win32', 'DPAPI saved key recovers on Windows');
+  assert.deepEqual(errors, []);
+  console.log(JSON.stringify({ ok: true, modelCalls, screenshots: ['artifacts/llm-settings-desktop.png', 'artifacts/llm-settings-mobile.png'], checks: ['authentication', 'provider-401', 'connection', 'encrypted-key', 'history-preview-selection', 'automatic-queue', 'evidence-and-time', 'review-confirmation', 'pause', 'restart', 'mobile-layout'], data: 'synthetic-only' }));
+} finally { await browser?.close(); await stop(); mock.close(); mock.closeAllConnections(); await rm(directory, { recursive: true, force: true }); }
