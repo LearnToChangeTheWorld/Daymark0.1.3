@@ -8,6 +8,7 @@ import { validateEvent, SOURCES, cleanItem, itemKind } from './shared/events.mjs
 import { presentItems, autoPromoteChatTasks } from './shared/chat-triage.mjs';
 import { runtimeConfig, isLocalRequest } from './shared/runtime.mjs';
 import { createInterface } from 'node:readline';
+import { createLlmOrganizer, queueLlmItem } from './collector/llm-organizer.mjs';
 
 const root = fileURLToPath(new URL('.', import.meta.url));
 const publicRoot = join(root, 'public');
@@ -52,6 +53,8 @@ for (const item of store.items) {
 let mutationQueue = Promise.resolve();
 let localAccounts = null;
 let chatAccounts = null;
+let csuAccounts = null;
+let llmOrganizer = null;
 
 function canManageAccounts(req) {
   return Boolean(!cloudMode && localAccounts && isLocalRequest(req));
@@ -118,7 +121,9 @@ function sourceView() {
   const local = localAccounts?.view();
   if (local?.configured || local?.status === 'needs_login' || local?.status === 'error') sources.chaoxing = { status: local.status, message: local.message, lastSync: local.lastSync || null, loginState: local.loginState, syncStatus: local.operation.status, operationId: local.operation.id, busy: local.busy };
   Object.assign(sources, chatAccounts?.sources() || {});
-  return { sources, collector: store.collector ? { ...store.collector, online: collectorOnline } : null, localCollection: Boolean(local?.configured || Object.values(chatAccounts?.sources() || {}).some((s) => s.enabled)) };
+  const csu = csuAccounts?.view();
+  if (csu?.configured || ['error', 'needs_login'].includes(csu?.status)) sources.csu = { status: csu.status, message: csu.message, lastSync: csu.lastSync, busy: csu.busy };
+  return { sources, collector: store.collector ? { ...store.collector, online: collectorOnline } : null, localCollection: Boolean(csu?.configured || local?.configured || Object.values(chatAccounts?.sources() || {}).some((s) => s.enabled)) };
 }
 
 function limited(req) {
@@ -138,7 +143,11 @@ function ingest(draft, payload) {
   const accepted = [];
   for (const event of events) {
     const existing = draft.items.find((item) => item.source === event.source && item.externalId === event.externalId);
-    if (!existing) draft.items.unshift({ ...event, id: randomBytes(10).toString('hex'), receivedAt: new Date().toISOString(), read: false, done: false, archived: false });
+    if (!existing) {
+      const item = { ...event, id: randomBytes(10).toString('hex'), receivedAt: new Date().toISOString(), read: false, done: false, archived: false };
+      queueLlmItem(draft, item);
+      draft.items.unshift(item);
+    }
     else if (event.publishedAt) {
       // Correct source timestamps without touching the user's edits/completion.
       existing.publishedAt = event.publishedAt; existing.createdAt = event.publishedAt; existing.timestampKind = 'published';
@@ -194,9 +203,37 @@ async function api(req, res, path) {
     cookie(res, '', 0);
     return json(res, 200, { ok: true });
   }
-  if (path === '/api/state' && req.method === 'GET') return json(res, 200, { items: presentItems(store.items), ...sourceView(), updatedAt: new Date().toISOString(), mode: cloudMode ? 'cloud' : 'local', remindersEnabled: false, localAccountsEnabled: canManageAccounts(req) });
+  if (path === '/api/state' && req.method === 'GET') return json(res, 200, { items: presentItems(store.items), ...sourceView(), llm: llmOrganizer?.view(), updatedAt: new Date().toISOString(), mode: cloudMode ? 'cloud' : 'local', remindersEnabled: false, localAccountsEnabled: canManageAccounts(req) });
+  if (path.startsWith('/api/llm')) {
+    if (cloudMode || !isLocalRequest(req)) return json(res, 403, { error: '请在本机管理大模型配置' });
+    if (path === '/api/llm' && req.method === 'GET') return json(res, 200, llmOrganizer.view());
+    const input = await body(req);
+    if (path === '/api/llm' && req.method === 'PUT') return json(res, 200, await llmOrganizer.save(input));
+    if (path === '/api/llm' && req.method === 'DELETE') return json(res, 200, await llmOrganizer.clear());
+    if (req.method === 'POST') {
+      if (path === '/api/llm/test') return json(res, 200, await llmOrganizer.test(input));
+      if (path === '/api/llm/pause') return json(res, 200, await llmOrganizer.pause());
+      if (path === '/api/llm/retry') return json(res, 200, await llmOrganizer.retry());
+      if (path === '/api/llm/preview') return json(res, 202, await llmOrganizer.preview(input));
+      if (path === '/api/llm/apply') return json(res, 200, await llmOrganizer.apply(input.id, input.selected));
+      if (path === '/api/llm/review') return json(res, 200, await llmOrganizer.review(input.id, input.accept === true));
+    }
+    return json(res, 405, { error: 'method not allowed' });
+  }
   if (path.startsWith('/api/accounts/')) {
     if (!canManageAccounts(req)) return json(res, 403, { error: '请在 Windows 电脑上打开 http://localhost:4317 管理账号；云端及局域网入口不接收平台密码' });
+    if (/^\/api\/accounts\/csu(?:\/sync)?$/.test(path)) {
+      if (req.method === 'GET' && path === '/api/accounts/csu') return json(res, 200, csuAccounts.view());
+      if (!String(req.headers['content-type'] || '').startsWith('application/json')) return json(res, 415, { error: '需要 JSON 请求' });
+      const input = await body(req);
+      if (req.method === 'POST' && path === '/api/accounts/csu') return json(res, 202, csuAccounts.connect(input));
+      if (req.method === 'DELETE' && path === '/api/accounts/csu') return json(res, 200, await csuAccounts.disconnect());
+      if (req.method === 'POST' && path === '/api/accounts/csu/sync') {
+        if (!csuAccounts.view().configured) return json(res, 409, { error: '请先打开学校窗口登录教务系统' });
+        void csuAccounts.sync(input); return json(res, 202, csuAccounts.view());
+      }
+      return json(res, 405, { error: 'method not allowed' });
+    }
     const chat = path.match(/^\/api\/accounts\/(qq|wechat)(?:\/(qr|qr\.png|groups|selection|check|history|initialize|acknowledge))?$/);
     if (chat && chatAccounts) {
       const [, source, action] = chat;
@@ -242,7 +279,7 @@ async function api(req, res, path) {
     const result = await transaction((draft) => {
       const byId = new Map(draft.items.map(item => [item.id, item]));
       if (ids.some(id => !byId.has(id))) throw Object.assign(new Error('部分记录已不存在，请刷新后重新选择；本次未修改任何记录'), { status: 404 });
-      for (const id of ids) byId.get(id).archived = input.archived;
+      for (const id of ids) { const item = byId.get(id); item.archived = input.archived; if (item.llm || item.llmQueue) item.userEditedAt = new Date().toISOString(); }
       return { ok: true, ids, count: ids.length, archived: input.archived };
     });
     return json(res, 200, result);
@@ -253,8 +290,12 @@ async function api(req, res, path) {
     const result = await transaction((draft) => {
       const item = draft.items.find((entry) => entry.id === match[1]);
       if (!item) return false;
-      if (!patch) draft.items = draft.items.filter((entry) => entry.id !== item.id);
+      if (!patch) {
+        if (item.llm) { draft.llm.dismissedSourceIds ||= []; draft.llm.dismissedSourceIds.push(...item.llm.sourceIds); }
+        draft.items = draft.items.filter((entry) => entry.id !== item.id);
+      }
       else {
+        if (Object.keys(patch).some(key => ['due', 'dueAt', 'eventDate', 'eventAt', 'category', 'title', 'body', 'kind', 'done', 'archived', 'triageDecision', 'confirmed'].includes(key))) item.userEditedAt = new Date().toISOString();
         if ('triageDecision' in patch) {
           if (patch.triageDecision !== 'dismissed' && patch.triageDecision !== null) throw Object.assign(new Error('待办判断不正确'), { status: 400 });
           item.triageDecision = patch.triageDecision;
@@ -265,9 +306,10 @@ async function api(req, res, path) {
         }
         for (const key of ['read', 'done', 'archived']) if (typeof patch[key] === 'boolean') item[key] = patch[key];
         if (patch.confirmed === true) item.confidence = 'high';
-        if ('due' in patch || 'category' in patch || 'title' in patch || 'body' in patch || 'kind' in patch) {
+        if (['due', 'dueAt', 'eventDate', 'eventAt', 'category', 'title', 'body', 'kind'].some(key => key in patch)) {
+          if ('due' in patch && patch.due !== item.due && !('dueAt' in patch)) patch.dueAt = null;
           const next = cleanItem({ ...item, ...patch });
-          for (const key of ['due', 'category', 'title', 'body', 'kind']) item[key] = next[key];
+          for (const key of ['due', 'category', 'title', 'body', 'kind', 'dueAt', 'eventDate', 'eventAt']) if (key in next) item[key] = next[key];
           if ('kind' in patch) {
             delete item.autoTask;
             if (patch.kind === 'task') item.triageDecision = null;
@@ -297,10 +339,13 @@ async function serveStatic(req, res, pathname) {
 
 // Re-evaluate the existing review backlog as well as newly collected messages.
 await transaction((draft) => autoPromoteChatTasks(draft.items));
+if (!cloudMode) llmOrganizer = await createLlmOrganizer({ getStore: () => store, transaction });
 
 if (!cloudMode) {
   const { createAccounts } = await import('./collector/accounts.mjs');
   localAccounts = await createAccounts({ dataDir: join(dataRoot, 'accounts'), deliver: (event) => transaction((draft) => ingest(draft, { events: [event] })) });
+  const { createCsuAccounts } = await import('./collector/csu-accounts.mjs');
+  csuAccounts = await createCsuAccounts({ dataDir: join(dataRoot, 'accounts'), deliver: (event) => transaction((draft) => ingest(draft, { events: [event] })) });
   const { createChatAccounts } = await import('./collector/chat-accounts.mjs');
   chatAccounts = await createChatAccounts({ dataDir: join(dataRoot, 'accounts'), courseHints: () => localAccounts?.view().courses || [], deliver: (event) => transaction((draft) => ingest(draft, { events: [event] })) });
 }
@@ -322,7 +367,7 @@ const app = createServer(async (req, res) => {
   } catch (error) {
     const inputError = error instanceof SyntaxError || error.name === 'ValidationError';
     if (!inputError && !error.status) console.error('Request failed:', error.message);
-    if (!res.headersSent) json(res, error.status || (inputError ? 400 : 500), { error: inputError ? error.message : error.status ? error.message : '保存或读取失败，请稍后重试' });
+    if (!res.headersSent) json(res, error.status === 401 && req.url.startsWith('/api/llm') ? 400 : error.status || (inputError ? 400 : 500), { error: inputError ? error.message : error.status ? error.message : '保存或读取失败，请稍后重试' });
     else res.destroy();
   }
 });
@@ -338,7 +383,7 @@ let shuttingDown = false;
 async function shutdown() {
   if (shuttingDown) return; shuttingDown = true;
   const stopped = new Promise((done) => app.close(done)); app.closeIdleConnections();
-  await Promise.allSettled([stopped, localAccounts?.close(), chatAccounts?.close()]);
+  await Promise.allSettled([stopped, localAccounts?.close(), chatAccounts?.close(), csuAccounts?.close(), llmOrganizer?.close()]);
   await mutationQueue; process.exit(0);
 }
 for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, shutdown);
