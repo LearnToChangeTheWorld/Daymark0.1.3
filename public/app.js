@@ -59,7 +59,7 @@ function dateKey(date = new Date()) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 }
 
-const mainRelevant = (item) => item.relevance !== 'other' && !(item.relevance === undefined && item.category === 'life' && !isTask(item));
+const mainRelevant = (item) => Boolean(item.llm) || item.relevance !== 'other' && !(item.relevance === undefined && item.category === 'life' && !isTask(item));
 const itemTime = (item) => item.publishedAt || item.createdAt;
 const messageDay = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit' });
 const messageClock = new Intl.DateTimeFormat('zh-CN', { timeZone: 'Asia/Shanghai', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
@@ -168,11 +168,13 @@ function itemMarkup(item) {
   const task = isTask(item), candidate = isCandidate(item);
   const source = item.sourceName || SOURCE_NAMES[item.source] || '其他来源';
   const title = String(item.title || '未命名事项').replace(/\s+/gu, ' ').slice(0, 100);
-  const time = task ? item.due ? `${item.due < dateKey() && !item.done ? '逾期 · ' : '截止 '}${item.due}` : '未定日期' : shortTime(itemTime(item));
+  const eventLabel = item.eventAt ? `${item.eventDate} ${item.eventAt.slice(11, 16)}` : item.eventDate;
+  const deadline = item.dueAt ? `${item.due} ${item.dueAt.slice(11, 16)}` : item.due;
+  const time = task ? item.due ? `${item.due < dateKey() && !item.done ? '逾期 · ' : '截止 '}${deadline}` : '未定日期' : shortTime(itemTime(item));
   const received = messageTime(item);
   const receivedLabel = received ? `${item.source === 'manual' ? '记录' : '收到'} ${messageClock.format(new Date(received))}` : '原消息时间未知';
   const end = task && state.view === 'tasks'
-    ? `<time class="row-time message-time"${received ? ` datetime="${escapeHtml(received)}"` : ''}>${escapeHtml(receivedLabel)}</time><span class="row-due${item.due && item.due < dateKey() ? ' overdue' : ''}">${escapeHtml(item.due ? `${item.due < dateKey() ? '逾期 · 截止 ' : '截止 '}${item.due}` : '截止日期待确认')}</span>`
+    ? `<time class="row-time message-time"${received ? ` datetime="${escapeHtml(received)}"` : ''}>${escapeHtml(receivedLabel)}</time><span class="row-due${item.due && item.due < dateKey() ? ' overdue' : ''}">${escapeHtml(item.due ? `${item.due < dateKey() ? '逾期 · 截止 ' : '截止 '}${deadline}` : eventLabel ? `发生 ${eventLabel}` : '截止日期待确认')}</span>`
     : `<span class="row-time${task && item.due && item.due < dateKey() && !item.done ? ' overdue' : ''}">${escapeHtml(time)}</span>`;
   return `<article class="item-row${task && !bulkMode ? ' has-completion-action' : ''}${state.view === 'review' ? ' review-entry' : ''}${item.done ? ' is-done' : ''}${item.relevance === 'other' ? ' is-muted' : ''}${bulkSelected.has(item.id) ? ' is-selected' : ''}" data-item="${escapeHtml(item.id)}">
     ${bulkMode ? selectionMarkup(item) : task ? `<button class="task-complete" type="button" data-action="toggle-done" aria-label="${item.done ? '恢复未完成' : '标记完成'}">${item.done ? '恢复未完成' : '已完成'}</button>` : `<span class="record-mark ${candidate ? 'candidate-mark' : ''}" aria-hidden="true">${candidate ? '?' : '·'}</span>`}
@@ -188,6 +190,17 @@ function openDetail(item) {
     $('.detail-body', $('#detailContent')).insertAdjacentHTML('afterend', autoHint);
     $('.detail-actions', $('#detailContent')).insertAdjacentHTML('beforeend', '<button class="btn btn-outline-secondary" data-action="dismiss-candidate">不是待办</button>');
   }
+  if (!item.llm && item.eventDate) $('.detail-body', $('#detailContent')).insertAdjacentHTML('afterend', `<p>发生时间：${escapeHtml(item.eventAt ? `${item.eventDate} ${item.eventAt.slice(11, 16)}（北京时间）` : item.eventDate)}</p>`);
+  if (item.llm && window.daymarkLlm) {
+    $('.detail-body', $('#detailContent')).insertAdjacentHTML('afterend', window.daymarkLlm.detail(item));
+    if (item.dueAt) $('.detail-meta', $('#detailContent')).insertAdjacentHTML('beforeend', `<br>截止时刻：${escapeHtml(window.daymarkLlm.dateText(item.due, item.dueAt))}`);
+    if (item.llm.review) {
+      const button = $('[data-action="make-task"]', $('#detailContent'));
+      if (button) { button.dataset.action = 'llm-accept'; button.textContent = item.llm.targetId ? '确认事项变更' : '确认加入待办'; }
+      const dismiss = $('[data-action="dismiss-candidate"]', $('#detailContent'));
+      if (dismiss) dismiss.dataset.action = 'llm-dismiss';
+    }
+  }
   $('#detailDialog').showModal();
 }
 
@@ -195,7 +208,7 @@ function sourceStatus(source) {
   const info = state.sources[source] || {};
   const status = info.busy ? '正在同步' : { connected: '采集正常', partial: '部分读取成功', needs_login: '需要登录', offline: '已离线', error: '采集失败' }[info.status] || '尚未接入';
   const synced = info.lastSync ? `最近采集 ${formatDate(info.lastSync, true)}` : '尚无采集记录';
-  return `<div class="settings-source"><div><strong>${SOURCE_NAMES[source]}</strong><span>${escapeHtml(synced)}</span>${info.message ? `<span>${escapeHtml(info.message)}</span>` : ''}</div><div class="source-status-actions"><span class="connection-state">${status}</span>${source === 'chaoxing' ? '<button class="secondary-button" type="button" data-connect-chaoxing>连接 / 管理</button>' : ['qq', 'wechat'].includes(source) ? `<button class="secondary-button" type="button" data-connect-chat="${source}">扫码 / 管理</button>` : '<small>账号接入尚未实现</small>'}</div></div>`;
+  return `<div class="settings-source"><div><strong>${SOURCE_NAMES[source]}</strong><span>${escapeHtml(synced)}</span>${info.message ? `<span>${escapeHtml(info.message)}</span>` : ''}</div><div class="source-status-actions"><span class="connection-state">${status}</span>${source === 'chaoxing' ? '<button class="secondary-button" type="button" data-connect-chaoxing>连接 / 管理</button>' : ['qq', 'wechat'].includes(source) ? `<button class="secondary-button" type="button" data-connect-chat="${source}">扫码 / 管理</button>` : source === 'csu' ? '<button class="secondary-button" type="button" data-connect-csu>连接 / 管理</button>' : '<small>账号接入尚未实现</small>'}</div></div>`;
 }
 
 function groupedMarkup(items) {
@@ -267,10 +280,11 @@ function render() {
   const list = $('#itemList'); if (list._markup !== markup) { list.innerHTML = markup; list._markup = markup; }
   $$('.filter-tab').forEach((b) => b.classList.toggle('active', b.dataset.filter === state.filter));
   $('#settingsSources').innerHTML = ['wechat', 'qq', 'chaoxing', 'rainclass', 'csu'].map(sourceStatus).join('');
-  $$('#sourceNav [data-connect-chat], #sourceNav [data-connect-chaoxing]').forEach((b) => { const key = b.dataset.connectChat || 'chaoxing'; const s = state.sources[key]; const label = b.querySelector('span'); if (label) { label.textContent = s?.status === 'connected' ? '已连接' : s?.status === 'partial' ? '需留意' : ['error', 'offline', 'needs_login'].includes(s?.status) ? '需处理' : '未连接'; label.className = s?.status === 'connected' ? 'source-ok' : ''; } });
+  $$('#sourceNav [data-connect-chat], #sourceNav [data-connect-chaoxing], #sourceNav [data-connect-csu]').forEach((b) => { const key = b.hasAttribute('data-connect-csu') ? 'csu' : b.dataset.connectChat || 'chaoxing'; const s = state.sources[key]; const label = b.querySelector('span'); if (label) { label.textContent = s?.status === 'connected' ? '已连接' : s?.status === 'partial' ? '需留意' : ['error', 'offline', 'needs_login'].includes(s?.status) ? '需处理' : '未连接'; label.className = s?.status === 'connected' ? 'source-ok' : ''; } });
 }
 
 async function api(path, options = {}) {
+  if (location.protocol === 'file:') throw new Error('请先双击 Start-Daymark.cmd 启动，再使用本机 Daymark 页面');
   const headers = Object.assign({ 'content-type': 'application/json' }, options.headers || {});
   const response = await fetch(path, Object.assign({ credentials: 'same-origin', signal: AbortSignal.timeout(12_000) }, options, { headers }));
   if (response.status === 401) {
@@ -279,6 +293,7 @@ async function api(path, options = {}) {
     $('#settingsDialog').close();
     $('#accountDialog').close();
     $('#chatDialog').close();
+    $('#csuDialog').close();
     $('#detailDialog').close();
     if (!$('#pairDialog').open) $('#pairDialog').showModal();
     throw new Error('需要重新配对');
@@ -289,6 +304,7 @@ async function api(path, options = {}) {
 }
 
 async function sync(silent = true) {
+  if (location.protocol === 'file:') return;
   const generation = ++syncGeneration;
   try {
     const data = await api('/api/state');
@@ -299,6 +315,8 @@ async function sync(silent = true) {
     state.mode = data.mode;
     state.localAccountsEnabled = data.localAccountsEnabled;
     state.localCollection = data.localCollection;
+    state.llm = data.llm;
+    window.daymarkLlm?.render(data.llm);
     state.connected = true;
     authenticated = true;
     state.lastSync = data.updatedAt;
@@ -337,6 +355,9 @@ async function pair(code) {
 async function saveItem(form) {
   const data = new FormData(form);
   const input = { title: data.get('title'), body: data.get('body'), category: data.get('category'), due: data.get('due') };
+  input.dueAt = input.due && data.get('dueTime') ? `${input.due}T${data.get('dueTime')}:00+08:00` : null;
+  input.eventDate = data.get('eventDate') || null;
+  input.eventAt = input.eventDate && data.get('eventTime') ? `${input.eventDate}T${data.get('eventTime')}:00+08:00` : null;
   if (input.due || promotingToTask) input.kind = 'task';
   if (editingId) { input.confirmed = true; await api(`/api/items/${editingId}`, { method: 'PATCH', body: JSON.stringify(input) }); }
   else { input.source = data.get('source'); await api('/api/items', { method: 'POST', body: JSON.stringify(input) }); }
@@ -355,6 +376,9 @@ function openItem(item = null, { promote = false } = {}) {
   form.elements.body.readOnly = false;
   form.elements.source.disabled = false;
   for (const key of ['title', 'body', 'category', 'source', 'due']) if (item) form.elements[key].value = item[key] || '';
+  form.elements.dueTime.value = item?.dueAt?.slice(11, 16) || '';
+  form.elements.eventDate.value = item?.eventDate || '';
+  form.elements.eventTime.value = item?.eventAt?.slice(11, 16) || '';
   form.elements.body.readOnly = Boolean(item?.externalId);
   form.elements.source.disabled = Boolean(item);
   $('#itemFormEyebrow').textContent = item ? '确认事项' : '新事项';
@@ -400,6 +424,9 @@ document.addEventListener('click', async (event) => {
       return;
     }
     if (action.dataset.action === 'edit') { openItem(item); return; }
+    if (['llm-accept', 'llm-dismiss'].includes(action.dataset.action) || action.dataset.action === 'make-task' && item.llm?.review) {
+      try { await window.daymarkLlm.review(item, action.dataset.action !== 'llm-dismiss'); } catch (error) { toast(error.message, 6000); } return;
+    }
     if (action.dataset.action === 'make-task') { openItem(item, { promote: true }); return; }
     if (action.dataset.action === 'context') {
       $('#detailDialog').close();
@@ -572,7 +599,11 @@ $('#logoutButton').addEventListener('click', async () => {
     $('#settingsDialog').close(); $('#pairDialog').showModal();
   } catch { toast('退出失败，请重试'); }
 });
-sync(false);
+if (location.protocol === 'file:') {
+  render();
+  $('#fileEntryDialog').showModal();
+  $('#fileEntryDialog').addEventListener('cancel', event => event.preventDefault());
+} else sync(false);
 setInterval(() => { if (authenticated) sync(); }, 15_000);
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') sync(); });
 

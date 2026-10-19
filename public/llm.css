@@ -1,0 +1,25 @@
+.llm-entry button { margin-top: 12px; align-self: flex-start; }
+#llmDialog { width: min(660px, calc(100vw - 28px)); }
+#llmDialog .settings-content { padding: 28px; }
+#llmForm { display: grid; gap: 12px; }
+#llmForm .form-field { margin: 0; }
+#llmAdvanced { border: 1px solid #e6e8ed; border-radius: 10px; padding: 12px; }
+#llmAdvanced summary { cursor: pointer; color: #526174; margin-bottom: 10px; }
+#llmAdvanced .form-field { margin-top: 12px; }
+.llm-consent { align-items: flex-start; line-height: 1.6; padding: 12px; border-radius: 8px; background: #f4f7fc; }
+.llm-consent input { margin-top: 5px; flex-shrink: 0; }
+.llm-feedback { min-height: 24px; margin: 14px 0; color: #245e48; }
+.llm-feedback[data-error="true"], #llmError { color: #a63c32; }
+.llm-progress { padding: 16px; border: 1px solid #e6e8ed; border-radius: 12px; margin-bottom: 24px; }
+.llm-progress p { margin: 8px 0; font-size: 13px; }
+.llm-progress .dialog-actions { justify-content: flex-start; flex-wrap: wrap; }
+.llm-history h3 { font-size: 17px; }
+.llm-history .dialog-actions { align-items: flex-end; justify-content: flex-start; }
+.llm-preview { border: 1px solid #e6e8ed; border-radius: 10px; padding: 14px; margin: 12px 0; }
+.llm-preview-row { display: block; padding: 12px 0; border-bottom: 1px solid #edf0f4; line-height: 1.7; }
+.llm-preview-row input { margin-right: 8px; }
+.llm-preview-row p { margin: 4px 0 0 24px; white-space: pre-wrap; font-size: 13px; }
+.llm-evidence { border-left: 3px solid #bdcbe0; padding: 4px 12px; margin: 12px 0; white-space: pre-wrap; font-size: 13px; overflow-wrap: anywhere; }
+.llm-date-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.llm-tag { color: #687a94; font-size: 11px; }
+@media (max-width: 520px) { #llmDialog .settings-content { padding: 18px; } .llm-date-fields { grid-template-columns: 1fr; } }
